@@ -20,11 +20,39 @@ uv run python -m src.hrm_mcp_server
 # Type checking (REQUIRED after every edit)
 uv run mypy src/
 
-# Run tests
-uv run pytest tests/
+# Run meaningful tests (expect failures that reveal real issues)
+uv run pytest tests/ -v --tb=short
 
 # Install dependencies
 uv sync
+```
+
+## How to Test This MCP Server
+
+**The tests in this repository are designed to FIND BUGS, not just pass.**
+
+### Running Tests
+```bash
+# Run all tests - failures indicate real correctness issues
+uv run pytest tests/ -v
+
+# Run specific test categories
+uv run pytest tests/test_properties.py -v    # Mathematical properties
+uv run pytest tests/test_integration.py -v   # End-to-end workflows  
+uv run pytest tests/test_reasoning.py -v     # Business logic
+```
+
+### Test Failures Are Expected
+When tests fail, they reveal actual problems:
+- **Convergence tests**: Verify reasoning actually converges on solvable problems
+- **Property tests**: Check mathematical invariants hold (iteration bounds, confidence ranges)
+- **Integration tests**: Ensure MCP tools work end-to-end with realistic tasks
+- **Business logic tests**: Verify the system handles impossible/contradictory inputs appropriately
+
+### Using the MCP with Claude Code
+```bash
+# Add this server to Claude Code MCP configuration
+# Server should expose 4 tools: hierarchical_reason, decompose_task, refine_solution, analyze_reasoning_trace
 ```
 
 ## Core Principles
@@ -85,12 +113,34 @@ The server exposes 4 main MCP tools in `tools.py`:
 - `config.yaml`: Runtime parameters for H/L-modules, convergence thresholds, persistence settings
 - `pyproject.toml`: Dependencies, mypy strict typing configuration, pytest settings
 
+## Testing Philosophy
+
+**TESTS MUST VERIFY CORRECTNESS, NOT JUST PASS**
+
+### What Makes a Good Test
+- **Property-based**: Test mathematical/logical properties that must hold
+- **Behavioral**: Verify actual business logic and edge cases
+- **Integration**: Test full workflows, not just isolated units
+- **Realistic**: Use real data and scenarios, not mocked happy paths
+
+### Required Test Categories
+1. **Property Tests**: Convergence behavior, session lifecycle invariants
+2. **Integration Tests**: Full MCP tool workflows with realistic reasoning tasks
+3. **Edge Case Tests**: Error conditions, malformed inputs, resource limits
+4. **Performance Tests**: Convergence speed, memory usage under load
+
+### Anti-Patterns to Avoid
+- Tests that only verify API contracts exist
+- Mocked tests that don't exercise real logic
+- Tests written just to increase coverage percentage
+- Tests that pass regardless of implementation correctness
+
 ## Development Workflow
 
 1. **Search First**: Use Qdrant MCP to understand codebase before changes
 2. **Edit Minimally**: Find existing code to modify rather than create
 3. **Type Check**: Run `uv run mypy src/` after every file modification
-4. **Test Locally**: Ensure functionality before proceeding
+4. **Test Meaningfully**: Write tests that verify correctness, not just completion
 
 ## Session Management Patterns
 
