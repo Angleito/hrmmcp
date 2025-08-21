@@ -89,6 +89,9 @@ class HRMServer:
             session.status = SessionStatus.COMPLETED
             session.final_solution = result
             await self.update_session(session)
+            # Remove completed sessions from active sessions to free up slots
+            if session_id in self.active_sessions:
+                del self.active_sessions[session_id]
     
     async def cleanup_expired_sessions(self) -> None:
         retention_days = self.config["persistence"]["retention_days"]

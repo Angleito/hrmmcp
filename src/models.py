@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
@@ -49,7 +49,7 @@ class Decision(BaseModel):
     type: DecisionType
     rationale: str
     confidence: float = Field(ge=0.0, le=1.0)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class HModuleState(BaseModel):
@@ -65,7 +65,7 @@ class HModuleState(BaseModel):
 class LModuleTrace(BaseModel):
     action: str
     result: Any
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     success: bool
 
 
@@ -79,8 +79,8 @@ class LModuleState(BaseModel):
 class ReasoningSession(BaseModel):
     session_id: UUID = Field(default_factory=uuid4)
     status: SessionStatus = SessionStatus.ACTIVE
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     h_module_state: Optional[HModuleState] = None
     l_module_state: Optional[LModuleState] = None
     final_solution: Optional[Dict[str, Any]] = None

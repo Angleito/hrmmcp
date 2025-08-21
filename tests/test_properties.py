@@ -2,7 +2,7 @@
 
 import pytest
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.convergence import ConvergenceDetector
 from src.models import HModuleState, Goal, Decision, DecisionType, SessionStatus
@@ -198,17 +198,20 @@ class TestLModuleProperties:
         """Property: L-module iterations should respect configured bounds."""
         l_module = LModule()
         
-        # Property: Should not exceed reasonable iteration limits
-        max_reasonable_iterations = 1000
+        # Property: execute_step should enforce iteration bounds
+        max_iterations = l_module.MAX_ITERATIONS
+        test_instruction = {"action": "test", "details": "iteration bounds"}
         
-        for _ in range(max_reasonable_iterations + 1):
-            l_module.state.iteration += 1
-            if l_module.state.iteration > max_reasonable_iterations:
+        # Should be able to execute up to max iterations
+        for _ in range(max_iterations):
+            try:
+                l_module.execute_step(test_instruction)
+            except RuntimeError:
                 break
         
-        # This property ensures we don't have infinite loops in implementation
-        assert l_module.state.iteration <= max_reasonable_iterations, \
-            "L-module should have reasonable iteration bounds to prevent infinite loops"
+        # Next execution should raise RuntimeError due to bounds
+        with pytest.raises(RuntimeError, match="exceeded maximum iterations"):
+            l_module.execute_step(test_instruction)
 
 
 class TestSessionStateProperties:
@@ -261,7 +264,7 @@ class TestSessionStateProperties:
         
         # Update session
         session.status = SessionStatus.COMPLETED
-        session.updated_at = datetime.utcnow()
+        session.updated_at = datetime.now(timezone.utc)
         
         # Property: updated_at should be >= created_at
         assert session.updated_at >= created_at, \

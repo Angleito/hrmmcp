@@ -116,7 +116,7 @@ class TestMCPToolsIntegration:
         register_tools(server.mcp, server)
         
         # Get the tool function
-        tools = server.mcp.list_tools()
+        tools = await server.mcp.list_tools()
         assert "hierarchical_reason" in tools
         
         hierarchical_reason = tools["hierarchical_reason"]
@@ -154,7 +154,7 @@ class TestMCPToolsIntegration:
         from src.tools import register_tools
         
         register_tools(server.mcp, server)
-        tools = server.mcp.list_tools()
+        tools = await server.mcp.list_tools()
         decompose_task = tools["decompose_task"]
         
         result = await decompose_task(
@@ -218,28 +218,62 @@ class TestSessionLifecycleProperties:
     @pytest.mark.asyncio
     async def test_concurrent_session_limits_enforced(self) -> None:
         """Test that concurrent session limits are actually enforced."""
-        server = HRMServer()
-        await server.initialize()
+        from tempfile import NamedTemporaryFile
+        import os
         
-        max_sessions = server.config["server"]["max_concurrent_sessions"]
+        # Create server with temporary database to avoid conflicts
+        with NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+            tmp_db_path = tmp.name
         
-        # Create maximum allowed sessions
-        session_ids = []
-        for _ in range(max_sessions):
-            session_id = await server.create_session()
-            session_ids.append(session_id)
+        try:
+            # Create custom config with temp database
+            import tempfile
+            from pathlib import Path
+            
+            config_content = """
+server:
+  max_concurrent_sessions: 3
+  session_timeout_minutes: 30
+persistence:
+  database_path: "{}"
+""".format(tmp_db_path)
+            
+            with NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as config_file:
+                config_file.write(config_content)
+                config_path = config_file.name
+            
+            try:
+                server = HRMServer(Path(config_path))
+                await server.initialize()
+                
+                max_sessions = server.config["server"]["max_concurrent_sessions"]
+            finally:
+                os.unlink(config_path)
+        except Exception:
+            os.unlink(tmp_db_path)
+            raise
         
-        # Property: Should have created exactly max sessions
-        assert len(server.active_sessions) == max_sessions
-        
-        # Property: Next session creation should fail
-        with pytest.raises(RuntimeError, match="Maximum concurrent sessions reached"):
-            await server.create_session()
-        
-        # Property: After completing a session, should be able to create new one
-        await server.complete_session(session_ids[0], {"completed": True})
-        
-        # This should now work
-        new_session_id = await server.create_session()
-        assert new_session_id is not None
-        assert len(server.active_sessions) == max_sessions  # Still at max, but with one completed
+        try:
+            # Create maximum allowed sessions
+            session_ids = []
+            for _ in range(max_sessions):
+                session_id = await server.create_session()
+                session_ids.append(session_id)
+            
+            # Property: Should have created exactly max sessions
+            assert len(server.active_sessions) == max_sessions
+            
+            # Property: Next session creation should fail
+            with pytest.raises(RuntimeError, match="Maximum concurrent sessions reached"):
+                await server.create_session()
+            
+            # Property: After completing a session, should be able to create new one
+            await server.complete_session(session_ids[0], {"completed": True})
+            
+            # This should now work
+            new_session_id = await server.create_session()
+            assert new_session_id is not None
+            assert len(server.active_sessions) == max_sessions - 1  # One was removed by completion
+        finally:
+            # Cleanup
+            os.unlink(tmp_db_path)

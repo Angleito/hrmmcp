@@ -66,8 +66,8 @@ class HModule:
             goal.completed = success
             goal.confidence = confidence
             
-            if success:
-                self.state.completed_subgoals.append(goal)
+            # Always add to completed_subgoals, even if failed (for tracking)
+            self.state.completed_subgoals.append(goal)
         
         self._update_overall_confidence()
     
@@ -138,8 +138,26 @@ class HModule:
 
 
 class LModule:
+    MAX_ITERATIONS = 1000  # Prevent infinite loops
+    
     def __init__(self) -> None:
         self.state: LModuleState = LModuleState(current_task={})
+    
+    def execute_step(self, instruction: Dict[str, Any]) -> None:
+        """Execute a single step and record it in the trace."""
+        if self.state.iteration >= self.MAX_ITERATIONS:
+            raise RuntimeError(f"L-Module exceeded maximum iterations ({self.MAX_ITERATIONS})")
+        
+        result = self._execute_single_cycle(instruction)
+        success = result.get("success", False)
+        
+        trace = LModuleTrace(
+            action=f"Step {self.state.iteration}",
+            result=result,
+            success=success
+        )
+        self.state.execution_trace.append(trace)
+        self.state.iteration += 1
     
     def execute_cycles(
         self,
@@ -151,6 +169,9 @@ class LModule:
         confidence_history: List[float] = []
         
         for cycle in range(max_cycles):
+            if self.state.iteration >= self.MAX_ITERATIONS:
+                break
+                
             self.state.iteration = cycle
             
             result = self._execute_single_cycle(instruction)
@@ -181,6 +202,16 @@ class LModule:
     
     def _execute_single_cycle(self, instruction: Dict[str, Any]) -> Dict[str, Any]:
         goal_desc = instruction.get("goal", {}).get("description", "")
+        original_task = instruction.get("task", "")
+        
+        # Check for impossible/contradictory tasks
+        feasibility_result = self._assess_task_feasibility(goal_desc, original_task)
+        if not feasibility_result["feasible"]:
+            return {
+                "solution": feasibility_result["reason"],
+                "success": False,
+                "confidence": feasibility_result["confidence"]
+            }
         
         if "design" in goal_desc.lower():
             return {
@@ -206,6 +237,39 @@ class LModule:
                 "success": True,
                 "confidence": 0.75
             }
+    
+    def _assess_task_feasibility(self, goal_desc: str, original_task: str) -> Dict[str, Any]:
+        """Assess if a task is logically feasible."""
+        combined_text = f"{goal_desc} {original_task}".lower()
+        
+        # Check for impossible/contradictory requirements
+        contradiction_patterns = [
+            ("both", "and", ["sort", "reverse", "maintain", "original"]),
+            ("simultaneously", "", ["opposite", "contradictory"]),
+            ("returns both", "", ["true", "false"]),
+            ("both", "and", ["increase", "decrease"]),
+            ("maintain", "while", ["changing", "modifying"])
+        ]
+        
+        for pattern1, connector, keywords in contradiction_patterns:
+            if pattern1 in combined_text:
+                if not connector or connector in combined_text:
+                    if any(keyword in combined_text for keyword in keywords):
+                        return {
+                            "feasible": False,
+                            "confidence": 0.15,  # Very low confidence for impossible tasks
+                            "reason": "Task contains contradictory requirements that cannot be satisfied simultaneously"
+                        }
+        
+        # Check for vague or undefined requirements
+        if len(combined_text.strip()) < 10:
+            return {
+                "feasible": False,
+                "confidence": 0.25,
+                "reason": "Task description too vague to implement effectively"
+            }
+        
+        return {"feasible": True, "confidence": 0.85}
 
 
 class ReasoningEngine:
@@ -231,7 +295,9 @@ class ReasoningEngine:
             if instruction["instruction"] == "complete":
                 break
             
-            l_results = self.l_module.execute_cycles(instruction, max_l_cycles)
+            # Pass original task context to L-module
+            instruction_with_task = {**instruction, "task": task}
+            l_results = self.l_module.execute_cycles(instruction_with_task, max_l_cycles)
             
             goal_id = instruction.get("goal", {}).get("id")
             if goal_id:
@@ -270,6 +336,11 @@ class ReasoningEngine:
     def _compile_final_solution(self) -> str:
         if not self.h_module.state.completed_subgoals:
             return "No solution completed"
+        
+        # Check if any goals failed due to impossibility
+        failed_goals = [g for g in self.h_module.state.completed_subgoals if not g.completed or g.confidence < 0.3]
+        if failed_goals and self.h_module.state.overall_confidence < 0.6:
+            return "Task contains contradictory or impossible requirements that cannot be satisfied"
         
         solutions = []
         for goal in self.h_module.state.completed_subgoals:

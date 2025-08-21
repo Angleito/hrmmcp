@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -11,7 +11,7 @@ from .models import HModuleState, LModuleTrace, ReasoningSession, SessionStatus
 
 
 class StateManager:
-    def __init__(self, db_path: Path = Path("hrm_reasoning.db")) -> None:
+    def __init__(self, db_path: Path | str = Path("hrm_reasoning.db")) -> None:
         self.db_path = db_path
     
     async def initialize(self) -> None:
@@ -116,7 +116,7 @@ class StateManager:
                 str(session_id),
                 state.iteration,
                 state.model_dump_json(),
-                datetime.utcnow().isoformat()
+                datetime.now(timezone.utc).isoformat()
             ))
             await db.commit()
     
@@ -132,12 +132,12 @@ class StateManager:
                 h_iteration,
                 l_iteration,
                 trace.model_dump_json(),
-                datetime.utcnow().isoformat()
+                datetime.now(timezone.utc).isoformat()
             ))
             await db.commit()
     
     async def cleanup_old_sessions(self, retention_days: int = 7) -> int:
-        cutoff = datetime.utcnow() - timedelta(days=retention_days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute('''
