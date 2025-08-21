@@ -1,0 +1,34 @@
+server:
+  host: "localhost"
+  port: 3000
+  max_concurrent_sessions: 10
+  session_timeout_minutes: 30
+
+reasoning:
+  h_module:
+    max_iterations: 10
+    planning_timeout_seconds: 5
+    min_confidence_threshold: 0.7
+    
+  l_module:
+    max_cycles_per_h: 6
+    min_cycles_per_h: 3
+    execution_timeout_seconds: 2
+    local_convergence_threshold: 0.90
+    
+  convergence:
+    global_threshold: 0.85
+    stability_window: 3
+    improvement_epsilon: 0.01
+
+persistence:
+  database_path: "./hrm_reasoning.db"
+  retention_days: 7
+  snapshot_interval_iterations: 5
+  compression_enabled: true
+
+monitoring:
+  metrics_enabled: true
+  trace_sampling_rate: 0.1
+  performance_logging: true
+  debug_mode: false

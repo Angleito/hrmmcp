@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/Users/angel/Projects/hrmmcp/logs/.0e23151d8592b54c511bd0363b350290f4bf6276-audit.json",
+    "files": [
+        {
+            "date": 1755780193573,
+            "name": "/Users/angel/Projects/hrmmcp/logs/mcp-puppeteer-2025-08-21.log",
+            "hash": "82419d0cf65c3ad48566353e5bde0c70d72b0df6b194593b216501f82b175a85"
+        }
+    ],
+    "hashType": "sha256"
+}
