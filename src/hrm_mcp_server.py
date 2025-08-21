@@ -77,7 +77,12 @@ class HRMServer:
         return session_id
     
     async def get_session(self, session_id: UUID) -> Optional[ReasoningSession]:
-        return self.active_sessions.get(session_id)
+        # First check active sessions
+        if session_id in self.active_sessions:
+            return self.active_sessions[session_id]
+        
+        # If not found in active sessions, check database for completed sessions
+        return await self.state_manager.load_session(session_id)
     
     async def update_session(self, session: ReasoningSession) -> None:
         self.active_sessions[session.session_id] = session

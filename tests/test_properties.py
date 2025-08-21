@@ -220,32 +220,47 @@ class TestSessionStateProperties:
     @pytest.mark.asyncio
     async def test_session_state_transitions_are_valid(self) -> None:
         """Property: Session status transitions must follow valid state machine."""
-        state_manager = StateManager(":memory:")  # Use in-memory database for testing
-        await state_manager.initialize()
+        import tempfile
+        import os
         
-        from src.models import ReasoningSession
-        from uuid import uuid4
+        # Use temporary file instead of in-memory database for proper persistence
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+            tmp_db_path = tmp.name
         
-        session_id = uuid4()
-        session = ReasoningSession(session_id=session_id, status=SessionStatus.ACTIVE)
-        
-        # Save initial state
-        await state_manager.save_session(session)
-        
-        # Property: Valid transitions from ACTIVE
-        valid_transitions = [SessionStatus.COMPLETED, SessionStatus.TIMEOUT, SessionStatus.ERROR]
-        
-        for target_status in valid_transitions:
-            session.status = target_status
+        try:
+            from pathlib import Path
+            state_manager = StateManager(Path(tmp_db_path))
+            await state_manager.initialize()
+            
+            from src.models import ReasoningSession
+            from uuid import uuid4
+            
+            session_id = uuid4()
+            session = ReasoningSession(session_id=session_id, status=SessionStatus.ACTIVE)
+            
+            # Save initial state
             await state_manager.save_session(session)
             
-            # Should be able to load and verify transition
-            loaded_session = await state_manager.load_session(session_id)
-            assert loaded_session is not None
-            assert loaded_session.status == target_status
-        
-        # Property: Invalid transitions should be handled gracefully
-        # (Implementation detail: this depends on business logic requirements)
+            # Property: Valid transitions from ACTIVE
+            valid_transitions = [SessionStatus.COMPLETED, SessionStatus.TIMEOUT, SessionStatus.ERROR]
+            
+            for target_status in valid_transitions:
+                session.status = target_status
+                await state_manager.save_session(session)
+                
+                # Should be able to load and verify transition
+                loaded_session = await state_manager.load_session(session_id)
+                assert loaded_session is not None
+                assert loaded_session.status == target_status
+            
+            # Property: Invalid transitions should be handled gracefully
+            # (Implementation detail: this depends on business logic requirements)
+        finally:
+            # Cleanup
+            try:
+                os.unlink(tmp_db_path)
+            except FileNotFoundError:
+                pass
     
     @pytest.mark.asyncio
     async def test_timestamp_consistency_property(self) -> None:
@@ -278,47 +293,62 @@ class TestSessionStateProperties:
     @pytest.mark.asyncio
     async def test_session_persistence_idempotency(self) -> None:
         """Property: Saving and loading a session should be idempotent."""
-        state_manager = StateManager(":memory:")
-        await state_manager.initialize()
+        import tempfile
+        import os
         
-        from src.models import ReasoningSession, HModuleState, Goal
-        from uuid import uuid4
+        # Use temporary file instead of in-memory database for proper persistence
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+            tmp_db_path = tmp.name
         
-        # Create complex session state
-        session_id = uuid4()
-        h_state = HModuleState(
-            problem_representation={"task": "complex problem"},
-            completed_subgoals=[Goal(description="completed task", completed=True)],
-            pending_subgoals=[Goal(description="pending task", completed=False)],
-            overall_confidence=0.75
-        )
-        
-        original_session = ReasoningSession(
-            session_id=session_id,
-            status=SessionStatus.ACTIVE,
-            h_module_state=h_state
-        )
-        
-        # Save session
-        await state_manager.save_session(original_session)
-        
-        # Load session
-        loaded_session = await state_manager.load_session(session_id)
-        
-        # Property: Loaded session should be equivalent to original
-        assert loaded_session is not None
-        assert loaded_session.session_id == original_session.session_id
-        assert loaded_session.status == original_session.status
-        
-        if loaded_session.h_module_state and original_session.h_module_state:
-            assert (loaded_session.h_module_state.overall_confidence == 
-                   original_session.h_module_state.overall_confidence)
-            assert (len(loaded_session.h_module_state.completed_subgoals) == 
-                   len(original_session.h_module_state.completed_subgoals))
-        
-        # Property: Multiple saves should not corrupt data
-        await state_manager.save_session(loaded_session)
-        twice_loaded = await state_manager.load_session(session_id)
-        
-        assert twice_loaded is not None
-        assert twice_loaded.session_id == session_id
+        try:
+            from pathlib import Path
+            state_manager = StateManager(Path(tmp_db_path))
+            await state_manager.initialize()
+            
+            from src.models import ReasoningSession, HModuleState, Goal
+            from uuid import uuid4
+            
+            # Create complex session state
+            session_id = uuid4()
+            h_state = HModuleState(
+                problem_representation={"task": "complex problem"},
+                completed_subgoals=[Goal(description="completed task", completed=True)],
+                pending_subgoals=[Goal(description="pending task", completed=False)],
+                overall_confidence=0.75
+            )
+            
+            original_session = ReasoningSession(
+                session_id=session_id,
+                status=SessionStatus.ACTIVE,
+                h_module_state=h_state
+            )
+            
+            # Save session
+            await state_manager.save_session(original_session)
+            
+            # Load session
+            loaded_session = await state_manager.load_session(session_id)
+            
+            # Property: Loaded session should be equivalent to original
+            assert loaded_session is not None
+            assert loaded_session.session_id == original_session.session_id
+            assert loaded_session.status == original_session.status
+            
+            if loaded_session.h_module_state and original_session.h_module_state:
+                assert (loaded_session.h_module_state.overall_confidence == 
+                       original_session.h_module_state.overall_confidence)
+                assert (len(loaded_session.h_module_state.completed_subgoals) == 
+                       len(original_session.h_module_state.completed_subgoals))
+            
+            # Property: Multiple saves should not corrupt data
+            await state_manager.save_session(loaded_session)
+            twice_loaded = await state_manager.load_session(session_id)
+            
+            assert twice_loaded is not None
+            assert twice_loaded.session_id == session_id
+        finally:
+            # Cleanup
+            try:
+                os.unlink(tmp_db_path)
+            except FileNotFoundError:
+                pass

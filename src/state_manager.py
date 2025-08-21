@@ -12,7 +12,11 @@ from .models import HModuleState, LModuleTrace, ReasoningSession, SessionStatus
 
 class StateManager:
     def __init__(self, db_path: Path | str = Path("hrm_reasoning.db")) -> None:
-        self.db_path = db_path
+        # Keep as string if ":memory:", otherwise convert to Path
+        if db_path == ":memory:":
+            self.db_path: Path | str = ":memory:"
+        else:
+            self.db_path = Path(db_path) if not isinstance(db_path, Path) else db_path
     
     async def initialize(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:

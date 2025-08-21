@@ -1,12 +1,59 @@
 """Integration tests that verify actual HRM reasoning functionality works correctly."""
 
 import asyncio
+import os
+import tempfile
 import pytest
+from pathlib import Path
 from typing import Any, Dict
 
 from src.hrm_mcp_server import HRMServer
 from src.reasoning_engine import ReasoningEngine
 from src.models import SessionStatus
+
+
+@pytest.fixture
+async def isolated_server():
+    """Create server with isolated temporary database."""
+    # Create temporary database file
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+        tmp_db_path = tmp.name
+    
+    # Create custom config content
+    config_content = f"""
+server:
+  max_concurrent_sessions: 3
+  session_timeout_minutes: 30
+persistence:
+  database_path: "{tmp_db_path}"
+reasoning:
+  h_module:
+    max_iterations: 10
+    min_confidence_threshold: 0.7
+  l_module:
+    max_cycles_per_h: 6
+    min_cycles_per_h: 3
+  convergence:
+    global_threshold: 0.85
+"""
+    
+    # Write config to temporary file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as config_file:
+        config_file.write(config_content)
+        config_path = config_file.name
+    
+    try:
+        # Create server with isolated config
+        server = HRMServer(Path(config_path))
+        await server.initialize()
+        yield server
+    finally:
+        # Cleanup
+        try:
+            os.unlink(config_path)
+            os.unlink(tmp_db_path)
+        except FileNotFoundError:
+            pass  # Already cleaned up
 
 
 class TestHRMReasoningIntegration:
@@ -100,29 +147,37 @@ class TestHRMReasoningIntegration:
 class TestMCPToolsIntegration:
     """Test MCP tools with realistic end-to-end workflows."""
     
-    @pytest.fixture
-    async def server(self) -> HRMServer:
-        """Create and initialize server for testing."""
-        server = HRMServer()
-        await server.initialize()
-        return server
+    # Use the isolated server fixture for all MCP tests
     
     @pytest.mark.asyncio
-    async def test_hierarchical_reason_tool_full_workflow(self, server: HRMServer) -> None:
+    async def test_hierarchical_reason_tool_full_workflow(self, isolated_server: HRMServer) -> None:
         """Test the full workflow of hierarchical reasoning tool."""
         from src.tools import register_tools
         
         # Register tools
-        register_tools(server.mcp, server)
+        register_tools(isolated_server.mcp, isolated_server)
         
         # Get the tool function
-        tools = await server.mcp.list_tools()
-        assert "hierarchical_reason" in tools
+        tools_list = await isolated_server.mcp.list_tools()
+        tools_dict = {tool.name: tool for tool in tools_list}
+        assert "hierarchical_reason" in tools_dict
         
-        hierarchical_reason = tools["hierarchical_reason"]
+        # Access the tool function through the server's registered tools
+        from src.tools import register_tools
+        
+        # We need to access the actual function, not just the tool metadata
+        # Get the registered tool function directly from the MCP server
+        hierarchical_reason_func = None
+        for tool_name, tool_info in isolated_server.mcp._tool_manager._tools.items():
+            if tool_name == "hierarchical_reason":
+                # The FastMCP tool has a 'fn' attribute that contains the actual function
+                hierarchical_reason_func = tool_info.fn
+                break
+        
+        assert hierarchical_reason_func is not None, "hierarchical_reason tool handler not found"
         
         # Test with a realistic coding task
-        result = await hierarchical_reason(
+        result = await hierarchical_reason_func(
             task="Implement a binary search tree with insert, search, and delete operations",
             context={
                 "language": "python",
@@ -149,15 +204,26 @@ class TestMCPToolsIntegration:
         assert not metadata.get("error", False), f"Should not have error in metadata: {metadata}"
     
     @pytest.mark.asyncio
-    async def test_task_decomposition_creates_actionable_subtasks(self, server: HRMServer) -> None:
+    async def test_task_decomposition_creates_actionable_subtasks(self, isolated_server: HRMServer) -> None:
         """Test that task decomposition creates actually actionable subtasks."""
         from src.tools import register_tools
         
-        register_tools(server.mcp, server)
-        tools = await server.mcp.list_tools()
-        decompose_task = tools["decompose_task"]
+        register_tools(isolated_server.mcp, isolated_server)
+        tools_list = await isolated_server.mcp.list_tools()
+        tools_dict = {tool.name: tool for tool in tools_list}
+        assert "decompose_task" in tools_dict
         
-        result = await decompose_task(
+        # Get the actual tool function
+        decompose_task_func = None
+        for tool_name, tool_info in isolated_server.mcp._tool_manager._tools.items():
+            if tool_name == "decompose_task":
+                # The FastMCP tool has a 'fn' attribute that contains the actual function
+                decompose_task_func = tool_info.fn
+                break
+        
+        assert decompose_task_func is not None, "decompose_task tool handler not found"
+        
+        result = await decompose_task_func(
             task="Build a REST API for a book library management system",
             max_depth=3
         )
@@ -185,10 +251,9 @@ class TestSessionLifecycleProperties:
     """Test properties that must hold throughout session lifecycle."""
     
     @pytest.mark.asyncio
-    async def test_session_state_consistency(self) -> None:
+    async def test_session_state_consistency(self, isolated_server: HRMServer) -> None:
         """Verify session state remains consistent throughout operations."""
-        server = HRMServer()
-        await server.initialize()
+        server = isolated_server
         
         # Property: Initially no active sessions
         assert len(server.active_sessions) == 0
@@ -210,70 +275,39 @@ class TestSessionLifecycleProperties:
         test_result = {"test": "solution"}
         await server.complete_session(session_id, test_result)
         
-        # Property: Completed session should have result and correct status
-        final_session = server.active_sessions[session_id]
+        # Property: Completed session should be removed from active sessions
+        assert session_id not in server.active_sessions, "Completed sessions should be removed from active sessions"
+        
+        # Property: But should be retrievable via get_session (from database)
+        final_session = await server.get_session(session_id)
+        assert final_session is not None
         assert final_session.status == SessionStatus.COMPLETED
         assert final_session.final_solution == test_result
     
     @pytest.mark.asyncio
-    async def test_concurrent_session_limits_enforced(self) -> None:
+    async def test_concurrent_session_limits_enforced(self, isolated_server: HRMServer) -> None:
         """Test that concurrent session limits are actually enforced."""
-        from tempfile import NamedTemporaryFile
-        import os
+        server = isolated_server
+        max_sessions = server.config["server"]["max_concurrent_sessions"]
         
-        # Create server with temporary database to avoid conflicts
-        with NamedTemporaryFile(suffix='.db', delete=False) as tmp:
-            tmp_db_path = tmp.name
+        # Create maximum allowed sessions
+        session_ids = []
+        for _ in range(max_sessions):
+            session_id = await server.create_session()
+            session_ids.append(session_id)
         
-        try:
-            # Create custom config with temp database
-            import tempfile
-            from pathlib import Path
-            
-            config_content = """
-server:
-  max_concurrent_sessions: 3
-  session_timeout_minutes: 30
-persistence:
-  database_path: "{}"
-""".format(tmp_db_path)
-            
-            with NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as config_file:
-                config_file.write(config_content)
-                config_path = config_file.name
-            
-            try:
-                server = HRMServer(Path(config_path))
-                await server.initialize()
-                
-                max_sessions = server.config["server"]["max_concurrent_sessions"]
-            finally:
-                os.unlink(config_path)
-        except Exception:
-            os.unlink(tmp_db_path)
-            raise
+        # Property: Should have created exactly max sessions
+        assert len(server.active_sessions) == max_sessions
         
-        try:
-            # Create maximum allowed sessions
-            session_ids = []
-            for _ in range(max_sessions):
-                session_id = await server.create_session()
-                session_ids.append(session_id)
-            
-            # Property: Should have created exactly max sessions
-            assert len(server.active_sessions) == max_sessions
-            
-            # Property: Next session creation should fail
-            with pytest.raises(RuntimeError, match="Maximum concurrent sessions reached"):
-                await server.create_session()
-            
-            # Property: After completing a session, should be able to create new one
-            await server.complete_session(session_ids[0], {"completed": True})
-            
-            # This should now work
-            new_session_id = await server.create_session()
-            assert new_session_id is not None
-            assert len(server.active_sessions) == max_sessions - 1  # One was removed by completion
-        finally:
-            # Cleanup
-            os.unlink(tmp_db_path)
+        # Property: Next session creation should fail
+        with pytest.raises(RuntimeError, match="Maximum concurrent sessions reached"):
+            await server.create_session()
+        
+        # Property: After completing a session, should be able to create new one
+        await server.complete_session(session_ids[0], {"completed": True})
+        
+        # This should now work
+        new_session_id = await server.create_session()
+        assert new_session_id is not None
+        # Should be back at max sessions: we removed one by completion, then added a new one
+        assert len(server.active_sessions) == max_sessions
