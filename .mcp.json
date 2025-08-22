@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "hrm-reasoning": {
+      "command": "uv",
+      "args": ["run", "--project", ".", "python", "-m", "src.hrm_mcp_server"],
+      "cwd": ".",
+      "env": {
+        "PYTHONPATH": "."
+      }
+    }
+  }
+}

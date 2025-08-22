@@ -102,34 +102,21 @@ class HRMServer:
         retention_days = self.config["persistence"]["retention_days"]
         deleted_count = await self.state_manager.cleanup_old_sessions(retention_days)
         
-        if deleted_count > 0:
-            print(f"Cleaned up {deleted_count} expired sessions")
+        # Log cleanup silently - don't print to stdout in MCP mode
+        # if deleted_count > 0:
+        #     print(f"Cleaned up {deleted_count} expired sessions")
     
-    async def start(self) -> None:
-        await self.initialize()
-        
-        cleanup_task = asyncio.create_task(self._periodic_cleanup())
-        
-        try:
-            print("HRM MCP Server starting...")
-            await self.mcp.run()  # type: ignore[func-returns-value]
-        finally:
-            cleanup_task.cancel()
-            try:
-                await cleanup_task
-            except asyncio.CancelledError:
-                pass
-    
-    async def _periodic_cleanup(self) -> None:
-        while True:
-            await asyncio.sleep(3600)  # Run every hour
-            await self.cleanup_expired_sessions()
+    # Periodic cleanup can be handled differently in MCP mode
+    # since we don't have a long-running async context
 
 
-async def main() -> None:
+def main() -> None:
     server = HRMServer()
-    await server.start()
+    # Initialize synchronously before running
+    asyncio.run(server.initialize())
+    # Run the MCP server (this is a blocking call)
+    server.mcp.run()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
