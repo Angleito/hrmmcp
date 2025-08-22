@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+.Python
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.cursor/
+
+# Project specific
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+temp/
+tmp/
+
+# Test files
+test_*.py
+!tests/test_*.py  # Keep test files in tests directory
+test_output/
+.test_cache/
+
+# Local configuration
+.env
+.env.local
+config.local.yaml
+
+# MCP/Claude artifacts
+.claude/
+*.backup
+
+# uv
+.uv/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Installation artifacts
+pip-log.txt
+pip-delete-this-directory.txt

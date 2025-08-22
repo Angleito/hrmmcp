@@ -25,10 +25,10 @@ fi
 
 # Detect package manager
 if command -v uv &> /dev/null && [ -f "$PROJECT_DIR/pyproject.toml" ]; then
-    USE_UV=true
+    USE_UV="True"
     echo -e "${GREEN}✓ Using uv for package management${NC}"
 elif [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
-    USE_UV=false
+    USE_UV="False"
     echo -e "${GREEN}✓ Using venv Python${NC}"
 else
     echo -e "${RED}✗ No virtual environment found. Please run install.sh first.${NC}"
@@ -42,7 +42,7 @@ import sys
 
 config_file = "$CLAUDE_CONFIG"
 project_dir = "$PROJECT_DIR"
-use_uv = $USE_UV
+use_uv = $USE_UV  # This will be True or False as a Python boolean
 
 # Read existing config
 try:
